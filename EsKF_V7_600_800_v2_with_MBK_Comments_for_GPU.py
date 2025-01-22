@@ -4,6 +4,7 @@ import scipy.io
 import sys
 from numba import jit   #numba is not supported in Python version 3.13, therefor it is not running on my laptop
 import time
+from numba import njit, prange
 #import StringIO
 
 #sio = StringIO.StringIO()
@@ -20,7 +21,7 @@ import time
 # % INS sensor data into Latitude, Longitude, Altitude (LLA) format.
 # %  INS data consist of linear acceleration i.e.(ax,ay and
 # % az) and angular velocity i.e.(wx,wy,wz)
-LLA=scipy.io.loadmat('D:\Dropbox\Research_Projects\Localization\Technical\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\LLA.mat')
+LLA=scipy.io.loadmat('LLA.mat')
 # print(type(LLA))
 """ for key, value in LLA.items():
     print(key, ' : ', value) """
@@ -42,7 +43,7 @@ LLA_Vn=LLA["Vn"]
 #print(LLA_t) 
 
 # % latitude and longituide reference generated from mission planner and used in Xplane
-Xplane_Pos=scipy.io.loadmat('D:\Dropbox\Research_Projects\Localization\Technical\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\Xplane_Pos.mat')
+Xplane_Pos=scipy.io.loadmat('Xplane_Pos.mat')
 Xplane_Pos_Lat_ref=Xplane_Pos["Lat_ref"]
 Xplane_Pos_Long_ref=Xplane_Pos["Long_ref"]
 
@@ -61,7 +62,7 @@ Xplane_Pos_Long_ref=Xplane_Pos["Long_ref"]
 % --------------------------------------
 % This data (AccForces.mat) will be later used in 'A' i.e. System Matrix """
 
-AccForces=scipy.io.loadmat('D:\Dropbox\Research_Projects\Localization\Technical\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\AccForces.mat')
+AccForces=scipy.io.loadmat('AccForces.mat')
 # Variable is An [ 3 x 2998]
 AccForces_An=AccForces["An"]
 """ print("The type is :", type(AccForces_An))
@@ -72,12 +73,12 @@ print("The shape is :", np.shape(AccForces_An)) """
 % the resulting variable is DEM_Z2,. Original DEM has a size of [3600x
 % 3600] whereas the DEM_ROI_sub.mat has a size of [695x1957] (Variable name is DEM_Z2) """
 
-DEM_ROI_sub=scipy.io.loadmat('E:\Dropbox\My Research Publications\Journal\In Progress\JP 01 (Sofia, EsKF GPS, ______PeerJ)\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\Case_02_Islamabad\Corrected Code v2\DEM_ROI_sub.mat')
+DEM_ROI_sub=scipy.io.loadmat('DEM_ROI_sub.mat')
 DEM_ROI_sub_DEM_Z2=DEM_ROI_sub["DEM_Z2"]
 
 #  % Lat, Long locations of the corresponding height (dimension of Seleceted_DEM = dimension of DEM_Z2)
 # % The size is [695x1957], and it is a cell array
-Selected_DEM=scipy.io.loadmat('E:\Dropbox\My Research Publications\Journal\In Progress\JP 01 (Sofia, EsKF GPS, ______PeerJ)\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\Case_02_Islamabad\Corrected Code v2\Selected_DEM.mat')
+Selected_DEM=scipy.io.loadmat('Selected_DEM.mat')
 """ print("The type is :", type(Selected_DEM_Matlab))
     for key, value in Selected_DEM_Matlab.items():
     print(key, ' : ', value) """
@@ -192,7 +193,7 @@ print('The shape of Lins is:',np.shape(Lins))
 
 %% Contains the Data from the X-Plane [63735 x 18]
 The mat file name is DataV4.mat, the variable name is also DataV4"""
-DataV4=scipy.io.loadmat('D:\Dropbox\Research_Projects\Localization\Technical\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\DataV4.mat')
+DataV4=scipy.io.loadmat('DataV4.mat')
 DataV4_DataV4=DataV4["DataV4"]
 """ print("The type of DataV4_DataV4 is:",type(DataV4_DataV4))
 print("The shape of DataV4_DataV4 is:",np.shape(DataV4_DataV4))
@@ -214,7 +215,7 @@ Data = DataV4_DataV4[1:2001,:] # %This is the data that has been selected for pr
 % Obtain the Radar Heights
 %--------------------------- """
 # The mat file name is GroundData.mat, the variable name is grounddata
-GroundData=scipy.io.loadmat('D:\Dropbox\Research_Projects\Localization\Technical\Coding\Files_for_Third_Delievable\Matlab_Files_for_Third_Deliverable\GroundData.mat')
+GroundData=scipy.io.loadmat('GroundData.mat')
 #load GroundData.mat #%[63735 x 1] obtained from X-Plane
 GroundData_grounddata=GroundData["grounddata"]
 
@@ -269,31 +270,60 @@ HGT=np.zeros((1,Ns))
 #------------------------------------------------------------------------
 #                  This code must be made efficient  
 # #----------------------------------------------------------------------  
-@jit(noPython=True)
-def go_fast(C,R):
-    for m in range(1,C):  #% for each column
-        for n in range(1,R):
-            #% Compute the hDB_mean for it
-            index = n+k #% Change the index
-            #% Compute hDB for this chunk
-            hDB_mean = np.average(hDB[index-1,m-1])  #% Mean of Heights compared in DEM with the strip.
-            #--------------------------------
-            #% Computing  the Sum
-            #--------------------------------
-            hDB_ind = hDB[index-1,m-1]
-            #print("I am in the loop")
-            #% Implement the MAD
-            #% hMeas is always erroneous reading due to fusion of INS data
-            #% with Radar based measurement
-            T = (hMeas-hMeas_bar)-(hDB_ind-hDB_mean)
-            Tabs = np.absolute(T)
-            MAD[n-1,m-1]=(1/N)*np.sum(Tabs) #% In this MAD (n,m) variable mean absolute deviation of the heights are stored, we hvae
-            #% find the corresponding value of
-            #% the (LAT, LONG) using the minimum  height
-            return MAD
+
+@njit(parallel=True)
+def compute_mad_numba(R, C, k, N, hMeas, hMeas_bar, hDB):
+    """
+    Computes the MAD array in parallel using Numba.
+    
+    Parameters:
+    -----------
+    R : int
+        Number of rows for the loop.
+    C : int
+        Number of columns for the loop.
+    k : int
+        Offset index used for hDB.
+    N : int
+        Denominator for MAD scaling.
+    hMeas : numpy.ndarray or float
+        Measurement(s). If it's an array, the operation will be applied element-wise.
+    hMeas_bar : numpy.ndarray or float
+        Mean of the measurements, used for MAD calculation.
+    hDB : numpy.ndarray
+        2D array (or more) containing height data.
+    
+    Returns:
+    --------
+    MAD : 2D numpy.ndarray
+        Computed MAD values of shape (R-1, C-1).
+    """
+    MAD = np.zeros((R - 1, C - 1), dtype=np.float64)
+
+    # Parallelize outer loop over columns with prange
+    for m in prange(1, C):
+        for n in range(1, R):
+            index = n + k
+
+            # If hDB[index-1, m-1] is a single value:
+            hDB_mean = np.mean(hDB[index - 1, m - 1])  # mean() of a single value is itself
+            hDB_ind  = hDB[index - 1, m - 1]
+
+            # Compute T and then absolute value
+            T    = (hMeas - hMeas_bar) - (hDB_ind - hDB_mean)
+            Tabs = np.abs(T)
+
+            # MAD calculation
+            MAD[n - 1, m - 1] = (1.0 / N) * np.sum(Tabs)
+
+    return MAD
+
+
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 start_execution_time=time.time()
+
+
 for i in range(start_time, end_time+10, 10):
     print(i)
     """ %     while c~=11      
@@ -545,26 +575,26 @@ for i in range(start_time, end_time+10, 10):
     #C=2
     #R=2
  
-    for m in range(1,C):  #% for each column
-        for n in range(1,R):
-            #% Compute the hDB_mean for it
-            index = n+k #% Change the index
-            #% Compute hDB for this chunk
-            hDB_mean = np.average(hDB[index-1,m-1])  #% Mean of Heights compared in DEM with the strip.
-            #--------------------------------
-            #% Computing  the Sum
-            #--------------------------------
-            hDB_ind = hDB[index-1,m-1]
-            #print("I am in the loop")
-            #% Implement the MAD
-            #% hMeas is always erroneous reading due to fusion of INS data
-            #% with Radar based measurement
-            T = (hMeas-hMeas_bar)-(hDB_ind-hDB_mean)
-            Tabs = np.absolute(T)
-            MAD[n-1,m-1]=(1/N)*np.sum(Tabs) #% In this MAD (n,m) variable mean absolute deviation of the heights are stored, we hvae
-            #% find the corresponding value of
-            #% the (LAT, LONG) using the minimum  heigt
- 
+    # for m in range(1,C):  #% for each column
+    #     for n in range(1,R):
+    #         #% Compute the hDB_mean for it
+    #         index = n+k #% Change the index
+    #         #% Compute hDB for this chunk
+    #         hDB_mean = np.average(hDB[index-1,m-1])  #% Mean of Heights compared in DEM with the strip.
+    #         #--------------------------------
+    #         #% Computing  the Sum
+    #         #--------------------------------
+    #         hDB_ind = hDB[index-1,m-1]
+    #         #print("I am in the loop")
+    #         #% Implement the MAD
+    #         #% hMeas is always erroneous reading due to fusion of INS data
+    #         #% with Radar based measurement
+    #         T = (hMeas-hMeas_bar)-(hDB_ind-hDB_mean)
+    #         Tabs = np.absolute(T)
+    #         MAD[n-1,m-1]=(1/N)*np.sum(Tabs) #% In this MAD (n,m) variable mean absolute deviation of the heights are stored, we hvae
+    #         #% find the corresponding value of
+    #         #% the (LAT, LONG) using the minimum  heigt
+    MAD = compute_mad_numba(R, C, k, N, hMeas, hMeas_bar, hDB)
     #MAD=go_fast(C,R)
 
     #% Compute the minimum value, 
