@@ -5,7 +5,7 @@ import sys
 from numba import jit   #numba is not supported in Python version 3.13, therefor it is not running on my laptop
 import time
 import numpy as np
-from numba import jit, prange
+from numba import njit, prange
 #import StringIO
 
 #sio = StringIO.StringIO()
@@ -282,8 +282,8 @@ HGT=np.zeros((1,Ns))
 # #----------------------------------------------------------------------
 
 
-@jit(nopython=True)
-# @jit(parallel=True)
+# @jit(nopython=True)
+@njit(parallel=True)
 def optimized_go_fast(hDB, hMeas, hMeas_bar, N, R, C):
     """Optimized MAD computation with preallocation and reduced operations."""
     MAD = np.zeros((R, C))
